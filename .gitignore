@@ -1,2 +1,2 @@
- terraform/*.auto.tfvars
- terraform/.terraform
+**/terraform/*.auto.tfvars
+**/terraform/.terraform
