@@ -1,0 +1,164 @@
+- hosts: kuber
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Install apt-transport-https ca-certificates curl gpg
+      ansible.builtin.apt:
+        pkg: 
+        - apt-transport-https 
+        - ca-certificates 
+        - curl 
+        - gpg
+        state: present
+        update_cache: true
+
+    - name: Added key kuber
+      ansible.builtin.apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key
+        state: present
+    
+    - name: Add Repository Kubernetes
+      ansible.builtin.apt_repository:
+        repo: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /
+        state: present
+    
+    - name: Update apt and install kubeadm kubelet kubectl
+      ansible.builtin.apt:
+        pkg: 
+        - kubeadm 
+        - kubelet 
+        - kubectl
+        state: present
+        update_cache: true
+    
+    - name: Hold kubeadm
+      ansible.builtin.dpkg_selections:
+        name: kubeadm
+        selection: hold
+    
+    - name: Hold kubelet
+      ansible.builtin.dpkg_selections:
+        name: kubelet
+        selection: hold
+    
+    - name: Hold kubectl
+      ansible.builtin.dpkg_selections:
+        name: kubectl
+        selection: hold
+    
+    - name: Restart kubelet
+      ansible.builtin.service:
+        name: kubelet
+        state: restarted 
+    
+    - name: Enable CRI plugin
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^disabled_plugins'
+        line: enable_plugins=["cri"]
+        state: present
+    
+    - name: Restart containerd
+      service:
+        name: containerd
+        state: restarted
+
+    - name: Disable swap
+      ansible.builtin.shell: 'swapoff -a'
+    
+    - name: Remove swap from fstab
+      ansible.builtin.mount:
+        name: "{{ item }}"
+        fstype: swap
+        state: absent
+      with_items:
+        - swap
+        - none
+
+    - name: Add line a file /etc/modules-load.d/containerd.conf
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/containerd.conf
+        line: "{{ item.line }}"
+      with_items:
+      - { line: 'overlay'}
+      - { line: 'br_netfilter'}
+
+- hosts: master
+  become: yes
+  gather_facts: no
+
+  tasks:
+   - name: Kubernetes cluster
+     ansible.builtin.command: kubeadm init
+     become_user: root
+    
+    - name: Create folder
+      ansible.builtin.shell: "{{ item }}"
+      become_user: ja7
+      with_items:
+        - mkdir -p $HOME/.kube/config
+
+    - name: Add permission
+      ansible.builtin.shell: "{{ item }}"
+      with_items:
+        - sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+        - sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+    - name: Copy file /etc/kubernetes/admin.conf
+      ansible.builtin.copy:
+        src: "/etc/kubernetes/admin.conf"
+        dest: "/home/ja7/.kube/config/"
+        owner: ja7
+        group: ja7
+        mode: '0744'
+
+
+    - name: Calico pod network install
+      become_user: ja7
+      ansible.builtin.shell: "{{ item }}"
+      with_items:
+        - curl https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml -O
+        - kubectl apply -f calico.yaml
+
+    - name: Join link
+      become_user: ja7
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_cluster
+
+    - name: Join cluster --> local file
+      local_action: copy content="{{ join_cluster.stdout_lines[0] }}" dest="./join-command"
+
+  - name: Init pod-network
+    shell: kubeadm init --pod-network-cidr=10.244.0.0/16
+
+  - name: Pause for 1 minutes to build app cache
+    pause:
+      minutes: 1
+
+  - name: Export KUBECONFIG
+    shell: export KUBECONFIG=/etc/kubernetes/admin.conf
+
+  - name: Export KUBECONFIG config
+    ansible.builtin.lineinfile:
+      path: /etc/environment
+      line: export KUBECONFIG=/etc/kubernetes/admin.conf
+      create: yes
+
+  - name: Calico pod network install
+    ansible.builtin.shell: "{{ item }}"
+    with_items:
+      - curl https://github.com/flannel-io/flannel/releases/download/v0.24.4/kube-flannel.yml -O
+      - kubectl apply -f kube-flannel.yml
+
+  - name: Pause for 1 minutes to build app cache
+    pause:
+      minutes: 1
+
+  - name: get join command
+    shell: kubeadm token create --print-join-command
+    register: join_command_raw
+
+  - name: set join command
+    set_fact:
+      join_command: "{{ join_command_raw.stdout_lines[0] }}"

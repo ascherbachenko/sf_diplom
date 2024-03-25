@@ -1,0 +1,45 @@
+---
+- hosts: kuber
+  become: yes  
+
+  tasks:
+    - name: Install git service
+      ansible.builtin.apt:
+        name: git
+        state: present
+        update_cache: yes
+      become: yes
+
+    - name: Add Docker GPG apt Key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      
+    - name: Add Docker Repository
+      ansible.builtin.apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu jammy stable
+        state: present
+
+    - name: Update apt and install docker-ce
+      ansible.builtin.apt:
+        name: docker-ce
+        state: latest
+        update_cache: true
+
+    - name: Enable docker-ce
+      service:
+        name: docker
+        state: started
+        update_cache: yes
+
+    - name: Add user in group Docker
+      user:
+        name: "{{ ansible_user }}"
+        group: docker
+        append: yes
+
+    - name: Install vim
+      ansible.builtin.apt:
+        name: vim
+        state: present
+      
