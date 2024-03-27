@@ -14,7 +14,7 @@
       ansible.builtin.apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
-      
+          
     - name: Add Docker Repository
       ansible.builtin.apt_repository:
         repo: deb https://download.docker.com/linux/ubuntu jammy stable
@@ -25,6 +25,11 @@
         name: docker-ce
         state: latest
         update_cache: true
+
+    - name: Install containerd
+      ansible.builtin.apt:
+        name: containerd.io
+        state: latest
 
     - name: Enable docker-ce
       service:
@@ -42,4 +47,32 @@
       ansible.builtin.apt:
         name: vim
         state: present
+
+- hosts: srv
+  become: yes
+
+  tasks:
+    - name: Install Java
+      ansible.builtin.apt:
+        pkg: 
+        - fontconfig 
+        - openjdk-17-jre 
+        state: present
+        update_cache: true
+    
+    - name: Add key Jenkins
+      ansible.builtin.apt_key:
+      url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+      state: present
+    
+    - name: Add Repository Jenkins
+      ansible.builtin.apt_repository:
+        repo: deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/
+        state: present
+    
+    - name: Install Jenkins
+      ansible.builtin.apt:
+        name: jenkins
+        state: latest
+        update_cache: yes
       
